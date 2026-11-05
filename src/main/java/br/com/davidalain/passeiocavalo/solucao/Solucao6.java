@@ -2,86 +2,73 @@ package br.com.davidalain.passeiocavalo.solucao;
 
 import br.com.davidalain.passeiocavalo.model.Posicao;
 import br.com.davidalain.passeiocavalo.model.Tabuleiro;
-import br.com.davidalain.passeiocavalo.model.TreeNode;
 
 import java.util.List;
 import java.util.stream.Stream;
 
+/**
+ * <h2>Solução 6 — Só contar: sem árvore e sem estado compartilhado</h2>
+ *
+ * <b>Objetivo:</b> contar todos os passeios a partir de uma casa, sem guardá-los.
+ * <p>
+ * <b>Lógica:</b> mesma busca da Solução 5 (máscara de bits, paralelismo só no topo), mas cada chamada
+ * recursiva <i>retorna</i> quantos passeios existem abaixo dela:
+ * <pre>
+ *   contar(casa, visitados) = 1                                   se visitou as N² casas
+ *                           = soma de contar(vizinho, visitados + vizinho)   para cada vizinho livre
+ * </pre>
+ * Nos níveis paralelos a soma é feita com {@code mapToLong(...).sum()}, que junta os resultados parciais
+ * de cada thread sem nenhuma trava.
+ * <p>
+ * <b>Ganhos sobre a Solução 5:</b>
+ * <ul>
+ *     <li>Não cria um {@link br.com.davidalain.passeiocavalo.model.TreeNode} por casa visitada, e a memória
+ *         fica constante: a árvore da Solução 5 guardava todos os passeios (milhões de nós no 6x6);</li>
+ *     <li>As threads não disputam o mesmo mapa a cada passeio encontrado: cada uma soma no próprio contador local;</li>
+ *     <li>A contagem é {@code long}, sem risco de estouro (no 7x7 há mais de 2³¹ passeios por casa).</li>
+ * </ul>
+ */
 public record Solucao6(
         Tabuleiro tabuleiro
 ) {
 
-    //===================================================================================
-    //===================================================================================
+    /**
+     * Conta os passeios a partir de {@code posicaoInicial} e grava o total em
+     * {@link Tabuleiro#mapaPosicaoInicialQuantidadeSolucoes()}.
+     *
+     * @return a quantidade de passeios que começam em {@code posicaoInicial}
+     * @throws IllegalArgumentException se o tabuleiro for maior que 8x8
+     */
+    public long encontrarPasseioDoCavalo6(Posicao posicaoInicial) {
+        tabuleiro.validarDimensaoBitmask();
 
-    public TreeNode<Posicao> encontrarPasseioDoCavalo6(Posicao posicaoInicial) {
-        int movimentos = 1;
-        final TreeNode<Posicao> treeNodeInicial = new TreeNode<Posicao>(posicaoInicial, movimentos, null);
+        final long bitMaskVisitados = Tabuleiro.marcarPosicaoVisitada(0L, tabuleiro.dimensao(), posicaoInicial);
+        final long quantidade = contarPasseios(posicaoInicial, bitMaskVisitados, 1);
 
-        if (tabuleiro.dimensao() * tabuleiro.dimensao() > 63) {
-            throw new IllegalArgumentException("This implementations supports a maximum of 63 visited positions, " +
-                    "but the given board requires " + (tabuleiro.dimensao() * tabuleiro.dimensao()) + ".");
-        }
-
-        tabuleiro.mapaPosicaoInicialQuantidadeSolucoes().put(posicaoInicial, 0);
-
-        // Inicializa com a posição inicial
-        long bitMaskVisitados = Tabuleiro.marcarPosicaoVisitada(0L, tabuleiro.dimensao(), posicaoInicial);
-
-        if (encontrarPasseioRecursivo6(treeNodeInicial, bitMaskVisitados, movimentos)) {
-            return treeNodeInicial;
-        }
-        return null;
+        tabuleiro.mapaPosicaoInicialQuantidadeSolucoes().put(posicaoInicial, quantidade);
+        return quantidade;
     }
 
-    private boolean encontrarPasseioRecursivo6(TreeNode<Posicao> currentNode, long bitMaskVisitados, int movimentos) {
-        // Se já visitamos todas as casas, encontramos uma solução
-        if (movimentos == tabuleiro.dimensao() * tabuleiro.dimensao()) {
-
-            TreeNode<Posicao> currToPrint = currentNode;
-            while ((currToPrint != null) && (currToPrint.parentNode != null)) {
-                currToPrint = currToPrint.parentNode;
-            }
-
-            final Posicao primeiraPosicao = currToPrint.value;
-            tabuleiro.mapaPosicaoInicialQuantidadeSolucoes().merge(primeiraPosicao, 1, Integer::sum);
-
-            //System.out.println("==========================");
-            //System.out.println("Posição Inicial: " + primeiraPosicao +
-            //        ", Quantidade de Soluções Encontradas (até o momento): " + this.mapaPosicaoInicialQuantidadeSolucoes.get(primeiraPosicao));
-
-            return true;
+    private long contarPasseios(Posicao atual, long bitMaskVisitados, int movimentos) {
+        // Caso base: visitou todas as casas -> este caminho é um passeio
+        if (movimentos == tabuleiro.totalCasas()) {
+            return 1;
         }
 
-        final List<Posicao> proximosMovimentos = tabuleiro.grafoMovimentos().get(currentNode.value);
+        final List<Posicao> proximosMovimentos = tabuleiro.grafoMovimentos().get(atual);
 
-        // Paralelizar apenas no início da árvore
-        final boolean usarParalelo = movimentos < (tabuleiro.dimensao() * tabuleiro.dimensao()) / 4;
-
+        // Paraleliza apenas no início da árvore
+        final boolean usarParalelo = movimentos < tabuleiro.totalCasas() / 4;
         final Stream<Posicao> stream = usarParalelo ?
                 proximosMovimentos.parallelStream() :
                 proximosMovimentos.stream();
 
-        stream.forEach(proximaPosicao -> {
-            if (!Tabuleiro.isPosicaoVisitada(bitMaskVisitados, tabuleiro.dimensao(), proximaPosicao)) {
-
-                final TreeNode<Posicao> childNode = currentNode.addChild(proximaPosicao);
-                long bitMaskVisitadosNovo = Tabuleiro.marcarPosicaoVisitada(bitMaskVisitados, tabuleiro.dimensao(), proximaPosicao);
-
-                encontrarPasseioRecursivo6(childNode, bitMaskVisitadosNovo, movimentos + 1);
-            }
-        });
-
-        //Se chegou aqui, então:
-        //  (1) é um nó intermediário, ou
-        //  (2) é um nó folha de um caminho sem solução
-
-        // Se (2), remove o nó da árvore para liberar memória
-        if ((currentNode.childNodes.isEmpty()) && (currentNode.parentNode != null)) {
-            //System.out.println("currentNode.parentNode.deleteChild(" + currentNode + ")");
-            currentNode.parentNode.deleteChild(currentNode);
-        }
-
-        return false;
+        return stream
+                .filter(proxima -> !Tabuleiro.isPosicaoVisitada(bitMaskVisitados, tabuleiro.dimensao(), proxima))
+                .mapToLong(proxima -> contarPasseios(
+                        proxima,
+                        Tabuleiro.marcarPosicaoVisitada(bitMaskVisitados, tabuleiro.dimensao(), proxima),
+                        movimentos + 1))
+                .sum();
     }
 }

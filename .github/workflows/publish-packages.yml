@@ -48,12 +48,18 @@ jobs:
           API_TOKEN: token-publicacao
         run: mvn -B verify
 
-      # O GitHub Packages exige nomes em minúsculas, então as coordenadas
-      # do pacote são fixadas aqui (independem do pom.xml da tag).
+      # O GitHub Packages exige nomes em minúsculas. A partir da v1.0.1 o pom.xml já usa
+      # br.com.davidalain:passeio-cavalo e é publicado com "mvn deploy" (jar + jar -exec + pom).
+      # Tags antigas (artifactId com maiúsculas) são publicadas com essas coordenadas via deploy-file.
       - name: Publicar pacote Maven
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          ARTIFACT_ID=$(mvn -B -q help:evaluate -Dexpression=project.artifactId -DforceStdout)
+          if [ "${ARTIFACT_ID}" = "passeio-cavalo" ]; then
+            mvn -B deploy -DskipTests
+            exit 0
+          fi
           JAR=$(find target -maxdepth 1 -name '*.jar' ! -name '*.original' | head -1)
           mvn -B deploy:deploy-file \
             -DgroupId=br.com.davidalain \

@@ -3,68 +3,73 @@ package br.com.davidalain.passeiocavalo.solucao;
 import br.com.davidalain.passeiocavalo.model.Posicao;
 import br.com.davidalain.passeiocavalo.model.Tabuleiro;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
+/**
+ * <h2>Solução 1 — Busca gulosa com a heurística de Warnsdorff</h2>
+ *
+ * <b>Objetivo:</b> encontrar <i>um</i> passeio (não conta todos).
+ * <p>
+ * <b>Lógica:</b> a cada passo o cavalo vai para a casa vizinha não visitada que tem
+ * <i>menos</i> saídas livres (regra de Warnsdorff, 1823). A ideia é visitar primeiro as casas
+ * "difíceis" (cantos e bordas), antes que fiquem isoladas. Em caso de empate, vale a primeira
+ * casa na ordem do grafo.
+ * <p>
+ * <b>Limitação:</b> não há retrocesso (backtracking). Se o cavalo ficar sem saída antes de visitar
+ * todas as casas, o método desiste e retorna {@code null}, mesmo que exista um passeio a partir
+ * daquela casa. É muito rápido (O(N²)), mas não garante a resposta.
+ */
 public record Solucao1(
         Tabuleiro tabuleiro
 ) {
 
+    /**
+     * @param inicio casa onde o cavalo começa
+     * @return a sequência de casas do passeio, ou {@code null} se a busca gulosa ficou sem saída
+     */
     public List<Posicao> encontrarPasseioDoCavalo(Posicao inicio) {
-        List<Posicao> caminho = new ArrayList<>();
-        Set<Posicao> visitados = new HashSet<>();
+        final int totalPosicoes = tabuleiro.totalCasas();
+        final List<Posicao> caminho = new ArrayList<>(totalPosicoes);
+        final Set<Posicao> visitados = new HashSet<>();
 
-        // PriorityQueue ordenada pelo número de movimentos disponíveis (heurística de Warnsdorff)
-        PriorityQueue<Posicao> fila = new PriorityQueue<>((p1, p2) -> {
-            List<Posicao> movs1 = tabuleiro.grafoMovimentos().get(p1);
-            List<Posicao> movs2 = tabuleiro.grafoMovimentos().get(p2);
-            return Integer.compare(
-                    (int) movs1.stream().filter(p -> !visitados.contains(p)).count(),
-                    (int) movs2.stream().filter(p -> !visitados.contains(p)).count()
-            );
-        });
+        Posicao atual = inicio;
+        caminho.add(atual);
+        visitados.add(atual);
 
-        // Começar pela posição inicial
-        fila.offer(inicio);
-        caminho.add(inicio);
-        visitados.add(inicio);
+        while (caminho.size() < totalPosicoes) {
+            // Escolhe o vizinho livre com o menor número de saídas livres
+            Posicao proxima = null;
+            int menorGrau = Integer.MAX_VALUE;
+            for (Posicao vizinho : tabuleiro.grafoMovimentos().get(atual)) {
+                if (visitados.contains(vizinho)) continue;
 
-        // Total de posições a visitar
-        int totalPosicoes = tabuleiro.dimensao() * tabuleiro.dimensao();
-
-        while (!fila.isEmpty() && visitados.size() < totalPosicoes) {
-            Posicao atual = fila.poll();
-            List<Posicao> movimentosPossiveis = tabuleiro.grafoMovimentos().get(atual);
-
-            // Ordena movimentos pela heurística de Warnsdorff (menos movimentos disponíveis primeiro)
-            List<Posicao> movimentosOrdenados = movimentosPossiveis.stream()
-                    .filter(p -> !visitados.contains(p))
-                    .sorted((p1, p2) -> {
-                        long movs1 = tabuleiro.grafoMovimentos().get(p1).stream()
-                                .filter(p -> !visitados.contains(p)).count();
-                        long movs2 = tabuleiro.grafoMovimentos().get(p2).stream()
-                                .filter(p -> !visitados.contains(p)).count();
-                        return Long.compare(movs1, movs2);
-                    })
-                    .collect(Collectors.toList());
-
-            // Tenta cada movimento possível
-            for (Posicao proximaPosicao : movimentosOrdenados) {
-                if (!visitados.contains(proximaPosicao)) {
-                    visitados.add(proximaPosicao);
-                    caminho.add(proximaPosicao);
-                    fila.offer(proximaPosicao);
-                    break; // Encontrou um movimento válido, continua com a próxima posição
+                int grau = contarSaidasLivres(vizinho, visitados);
+                if (grau < menorGrau) {
+                    menorGrau = grau;
+                    proxima = vizinho;
                 }
             }
-        }
 
-        // Verifica se encontrou um caminho completo
-        if (caminho.size() != totalPosicoes) {
-            return null; // Não foi possível encontrar um caminho completo
+            if (proxima == null) {
+                return null; // Sem saída: a heurística falhou para esta casa inicial
+            }
+
+            atual = proxima;
+            caminho.add(atual);
+            visitados.add(atual);
         }
 
         return caminho;
     }
 
+    private int contarSaidasLivres(Posicao posicao, Set<Posicao> visitados) {
+        int livres = 0;
+        for (Posicao p : tabuleiro.grafoMovimentos().get(posicao)) {
+            if (!visitados.contains(p)) livres++;
+        }
+        return livres;
+    }
 }

@@ -1,53 +1,68 @@
 package br.com.davidalain.passeiocavalo.model;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public record Tabuleiro(
-        int dimensao,
-        Posicao[][] tabuleiro,
-        Map<Posicao, List<Posicao>> grafoMovimentos,
+/**
+ * Tabuleiro NxN com o grafo de movimentos do cavalo pré-calculado.
+ * <p>
+ * O grafo ({@link #grafoMovimentos()}) é imutável e pode ser lido por várias threads ao mesmo tempo.
+ * O mapa de resultados ({@link #mapaPosicaoInicialQuantidadeSolucoes()}) é um {@link ConcurrentHashMap},
+ * onde as soluções guardam quantos passeios existem a partir de cada casa inicial.
+ */
+public final class Tabuleiro {
 
-        Map<Posicao, Integer> mapaPosicaoInicialQuantidadeSolucoes,
-        Map<Posicao, TreeNode<Posicao>> mapaPosicaoInicialTreeNode
-) {
+    /**
+     * Maior dimensão suportada pelas soluções que usam máscara de bits:
+     * um {@code long} tem 64 bits, um para cada casa de um tabuleiro 8x8.
+     */
+    public static final int DIMENSAO_MAXIMA_BITMASK = 8;
 
-    public Tabuleiro(
-            int dimensao,
-            Posicao[][] tabuleiro,
-            Map<Posicao, List<Posicao>> grafoMovimentos,
-            Map<Posicao, Integer> mapaPosicaoInicialQuantidadeSolucoes,
-            Map<Posicao, TreeNode<Posicao>> mapaPosicaoInicialTreeNode
-    ) {
+    private final int dimensao;
+    private final Posicao[][] tabuleiro;
+    private final Map<Posicao, List<Posicao>> grafoMovimentos;
+    private final Map<Posicao, Long> mapaPosicaoInicialQuantidadeSolucoes = new ConcurrentHashMap<>();
+
+    public Tabuleiro(int dimensao) {
         if (dimensao <= 0) {
             throw new IllegalArgumentException("Dimensão deve ser maior que zero");
         }
-
         this.dimensao = dimensao;
-        this.tabuleiro = tabuleiro;
-        this.grafoMovimentos = grafoMovimentos;
-        this.mapaPosicaoInicialQuantidadeSolucoes = mapaPosicaoInicialQuantidadeSolucoes;
-        this.mapaPosicaoInicialTreeNode = mapaPosicaoInicialTreeNode;
+        this.tabuleiro = gerarTabuleiro(dimensao);
+        this.grafoMovimentos = criarGrafoMovimentosCavalo(dimensao, this.tabuleiro);
     }
 
-    // Construtor
-    public Tabuleiro(int dimensao) {
-        this(
-                dimensao,
-                Tabuleiro.gerarTabuleiro(dimensao),
-                new HashMap<>(),
-                new ConcurrentHashMap<>(),
-                new ConcurrentHashMap<>()
-        );
-
-        this.grafoMovimentos.putAll(
-                Tabuleiro.criarGrafoMovimentosCavalo(this.dimensao, this.tabuleiro)
-        );
+    public int dimensao() {
+        return dimensao;
     }
 
-    // Inicializa o tabuleiro criando posições
+    /** Quantidade de casas do tabuleiro (N²). */
+    public int totalCasas() {
+        return dimensao * dimensao;
+    }
+
+    public Posicao[][] tabuleiro() {
+        return tabuleiro;
+    }
+
+    /** Para cada casa, a lista (imutável) de casas alcançáveis com um salto do cavalo. */
+    public Map<Posicao, List<Posicao>> grafoMovimentos() {
+        return grafoMovimentos;
+    }
+
+    /** Quantidade de passeios encontrados a partir de cada casa inicial. */
+    public Map<Posicao, Long> mapaPosicaoInicialQuantidadeSolucoes() {
+        return mapaPosicaoInicialQuantidadeSolucoes;
+    }
+
+    /** Soma dos passeios de todas as casas iniciais já calculadas. */
+    public long totalSolucoes() {
+        return mapaPosicaoInicialQuantidadeSolucoes.values().stream().mapToLong(Long::longValue).sum();
+    }
+
     private static Posicao[][] gerarTabuleiro(int dimensao) {
         Posicao[][] tabuleiro = new Posicao[dimensao][dimensao];
         for (int i = 0; i < dimensao; i++) {
@@ -58,73 +73,57 @@ public record Tabuleiro(
         return tabuleiro;
     }
 
-//    // Retorna a posição em determinada coordenada
-//    public Posicao getPosicao(int linha, int coluna) {
-//        if (!Posicao.posicaoValida(linha, coluna, this.dimensao)) {
-//            throw new IllegalArgumentException("Posição inválida");
-//        }
-//        return tabuleiro[linha][coluna];
-//    }
-
-    // Retorna a posição ordenada
+    /**
+     * Retorna a casa de número {@code numOrdem}, contando da esquerda para a direita e de cima para baixo
+     * (0 = canto superior esquerdo, N² - 1 = canto inferior direito).
+     */
     public Posicao getPosicaoOrdenada(int numOrdem) {
-        if (numOrdem < 0 || numOrdem >= (this.dimensao * this.dimensao))
-            throw new IllegalArgumentException("Posição inválida");
+        if (numOrdem < 0 || numOrdem >= totalCasas())
+            throw new IllegalArgumentException("Posição inválida: " + numOrdem);
 
-        int linha = numOrdem / this.dimensao;
-        int coluna = numOrdem % this.dimensao;
-
-        if (!Posicao.posicaoValida(linha, coluna, this.dimensao)) {
-            throw new IllegalArgumentException("Posição inválida");
-        }
-        return tabuleiro[linha][coluna];
+        return tabuleiro[numOrdem / dimensao][numOrdem % dimensao];
     }
 
-    // Metodo para imprimir o tabuleiro (útil para debug)
+    /** Imprime as coordenadas de todas as casas (útil para depuração). */
     public void imprimirTabuleiro() {
         for (int i = 0; i < dimensao; i++) {
+            StringBuilder linha = new StringBuilder();
             for (int j = 0; j < dimensao; j++) {
-                System.out.print("(" + tabuleiro[i][j].linha() +
-                        "," + tabuleiro[i][j].coluna() + ") ");
+                linha.append(tabuleiro[i][j]).append(' ');
             }
-            System.out.println();
+            System.out.println(linha);
         }
     }
 
-    public Map<Posicao, Integer> getMapaPosicaoInicialQuantidadeSolucoes() {
-        return mapaPosicaoInicialQuantidadeSolucoes;
-    }
-
-    public Map<Posicao, TreeNode<Posicao>> getMapaPosicaoInicialTreeNode() {
-        return mapaPosicaoInicialTreeNode;
-    }
-
-    // Metodo para gerar e armazenar todos os movimentos possíveis do cavalo
+    // Monta o grafo: cada casa aponta para as casas que o cavalo alcança a partir dela.
     private static Map<Posicao, List<Posicao>> criarGrafoMovimentosCavalo(int dimensao, Posicao[][] tabuleiro) {
-        Map<Posicao, List<Posicao>> todosMovimentosCavalo = new HashMap<>();
-
-        // Percorre todas as posições do tabuleiro
+        Map<Posicao, List<Posicao>> grafo = new HashMap<>();
         for (int i = 0; i < dimensao; i++) {
             for (int j = 0; j < dimensao; j++) {
                 Posicao posicaoAtual = tabuleiro[i][j];
-                // Calcula os movimentos possíveis para a posição atual
-                List<Posicao> movimentos = posicaoAtual.movimentosPossiveisCavalo(dimensao);
-                // Armazena no HashMap
-                todosMovimentosCavalo.put(posicaoAtual, movimentos);
+                grafo.put(posicaoAtual, List.copyOf(posicaoAtual.movimentosPossiveisCavalo(dimensao)));
             }
         }
-
-        return todosMovimentosCavalo;
+        return Collections.unmodifiableMap(grafo);
     }
 
-    // Metodo auxiliar para verificar e definir uma posição no BitSet
+    // ---- Máscara de bits de casas visitadas: o bit i do long representa a casa de índice i ----
+
+    /** Lança exceção se o tabuleiro não cabe em uma máscara de 64 bits. */
+    public void validarDimensaoBitmask() {
+        if (dimensao > DIMENSAO_MAXIMA_BITMASK) {
+            throw new IllegalArgumentException("Esta implementação suporta no máximo " + DIMENSAO_MAXIMA_BITMASK + "x"
+                    + DIMENSAO_MAXIMA_BITMASK + " (64 casas), mas o tabuleiro tem " + totalCasas() + " casas.");
+        }
+    }
+
+    /** Indica se o bit da casa {@code posicao} está ligado na máscara. */
     public static boolean isPosicaoVisitada(long bitMaskVisitados, int dimensao, Posicao posicao) {
-        return (bitMaskVisitados & (1L << (posicao.linha() * dimensao + posicao.coluna()))) != 0;
+        return (bitMaskVisitados & (1L << posicao.indice(dimensao))) != 0;
     }
 
+    /** Retorna uma nova máscara com o bit da casa {@code posicao} ligado. */
     public static long marcarPosicaoVisitada(long bitMaskVisitados, int dimensao, Posicao posicao) {
-        bitMaskVisitados |= (1L << (posicao.linha() * dimensao + posicao.coluna()));
-        return bitMaskVisitados;
+        return bitMaskVisitados | (1L << posicao.indice(dimensao));
     }
-
 }
