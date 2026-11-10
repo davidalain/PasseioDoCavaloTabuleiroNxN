@@ -174,6 +174,30 @@ class CalculoServiceTest {
     }
 
     @Test
+    void busca_que_termina_sem_erro_depois_do_cancelamento_fica_cancelada() {
+        // Uma calculadora pode perceber o cancelamento e simplesmente retornar, sem lançar exceção.
+        // O resultado parcial não pode virar CONCLUIDO.
+        CalculoService s = new CalculoService((d, controle) -> {
+            while (!controle.cancelado()) {
+                Thread.onSpinWait();
+            }
+            return 42; // total parcial, que deve ser descartado
+        }, 1, Duration.ZERO, 10);
+        try {
+            Calculo c = s.iniciar(5);
+            s.cancelar(c.id());
+            aguardarFim(c);
+
+            assertEquals(StatusCalculo.CANCELADO, c.status());
+            assertNull(c.totalSolucoes());
+            assertEquals("Cálculo cancelado.", c.erro());
+            assertTrue(s.emAndamento().isEmpty());
+        } finally {
+            s.encerrar();
+        }
+    }
+
+    @Test
     void erro_na_busca_marca_falha_e_libera_a_vaga() {
         calculadora.erro = new IllegalStateException("falha simulada");
         Calculo c = servico.iniciar(5).aguardar();
