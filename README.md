@@ -12,26 +12,36 @@ Dado um tabuleiro de xadrez (_normalmente de 8x8 casas_), o problema pergunta:
 Esse percurso é chamado de passeio do cavalo ([Knight's tour](https://en.wikipedia.org/wiki/Knight%27s_tour)).
 
 O código deste repositório fornece diferentes implementações em **Java**, desenvolvidas pelo [Prof. David Alain do Nascimento](https://github.com/davidalain),
-que calculam a quantidade de passeios possíveis em um tabuleiro de dimensão **N**x**N** usando técnicas de programação paralela e concorrente.
+que calculam a quantidade de passeios possíveis num tabuleiro de dimensão **N**x**N** usando técnicas de programação paralela e concorrente.
 
 A quantidade de soluções desse problema é conhecida na literatura. A proposta deste repositório é exemplificar as técnicas que podem ser usadas para implementar a solução.
 
 Fonte: [Number of tours - Knight's tour](https://en.wikipedia.org/wiki/Knight%27s_tour#Number_of_tours) (sequência [OEIS A165134](https://oeis.org/A165134))
 
-| N | Quantidade de passeios possíveis |
-| - | -------------------------------- |
-| 1 | 1                                |
-| 2 | 0                                |
-| 3 | 0                                |
-| 4 | 0                                |
-| 5 | 1 728                            |
-| 6 | 6 637 920                        |
-| 7 | 165 575 218 320                  |
-| 8 | 19 591 828 170 979 904           |
+| N | Quantidade de passeios possíveis | Tempo de cálculo (`Solucao7`) |
+| - | -------------------------------- | ----------------------------- |
+| 1 | 1                                | 0,2 ms                        |
+| 2 | 0                                | 0,2 ms                        |
+| 3 | 0                                | 0,3 ms                        |
+| 4 | 0                                | 4,7 ms                        |
+| 5 | 1 728                            | 266 ms                        |
+| 6 | 6 637 920                        | 49 min 29 s                   |
+| 7 | 165 575 218 320                  | ~1,6 a 7 anos _(estimativa)_  |
+| 8 | 19 591 828 170 979 904           | ~190 mil a 850 mil anos _(estimativa)_ |
 
-> O número cresce muito rápido: o 5x5 é calculado em fração de segundo, o 6x6 já exige bastante processamento,
-> o 7x7 pode levar dias e o 8x8 é inviável por busca exaustiva. A API aceita, por padrão, no máximo **N = 7**.
-> Por isso o cálculo é **assíncrono**: a requisição só inicia o cálculo, e o andamento e o resultado são consultados depois.
+**Como os tempos foram obtidos** (Intel Core i7-10750H, 6 núcleos / 12 threads, Java 21):
+
+- **N = 1 a 5:** mediana de 10 execuções, depois de aquecer a JVM.
+- **N = 6:** uma execução, que confirmou o total de 6 637 920.
+- **N = 7 e 8:** estimados a partir das medições, sem executar.
+  - No 6x6, a busca levou em média **2,46 ms por passeio encontrado**; no 5x5, 0,55 ms (4,4 vezes menos).
+  - Cada casa buscada representa no máximo 8 casas simétricas, então a busca precisa achar pelo menos 1/8 do total de passeios.
+  - O limite inferior supõe o custo por passeio do 6x6. O superior supõe que ele cresça de novo 4,4 vezes, como do 5x5 para o 6x6.
+
+> O tempo cresce muito rápido: o 5x5 sai em fração de segundo, o 6x6 leva quase uma hora, o 7x7 levaria anos
+> e o 8x8 é inviável por busca exaustiva. A API aceita, por padrão, até **N = 7**. Por isso o cálculo é **assíncrono**:
+> a requisição só inicia o cálculo, e o andamento e o resultado são consultados depois. Para o 7x7, defina um
+> tempo máximo (`PASSEIO_TEMPO_MAXIMO`).
 
 ## **As soluções**
 
@@ -364,7 +374,7 @@ Responde `404` se o `id` não existe e `409` se o cálculo já terminou.
 
 ### Por que assíncrono?
 
-Um cálculo grande pode levar horas ou dias. Se a resposta só viesse no fim, a conexão HTTP ficaria aberta e
+Um cálculo grande pode levar quase uma hora (6x6) ou anos (7x7). Se a resposta só viesse no fim, a conexão HTTP ficaria aberta e
 parada esse tempo todo, e seria cortada no caminho: proxies como o nginx e balanceadores como o AWS ALB fecham
 conexões sem resposta em 60 s, e o Cloudflare em 100 s. Pior: o servidor não percebe que o cliente foi embora e
 continua calculando, sem ninguém para receber o resultado. Por isso o antigo `POST /calcular` (síncrono, da

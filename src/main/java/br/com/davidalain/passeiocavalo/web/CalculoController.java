@@ -18,7 +18,7 @@ import java.util.UUID;
 
 /**
  * Cálculo assíncrono: a requisição só inicia o cálculo e retorna na hora; o andamento e o resultado são
- * consultados depois pelo id. Assim nenhuma conexão HTTP fica aberta durante horas, sujeita aos timeouts de
+ * consultados depois pelo id. Assim nenhuma conexão HTTP fica aberta durante todo o cálculo, sujeita aos timeouts de
  * proxies, balanceadores e clientes.
  * <pre>
  *   POST   /api/passeiocavalo/calculos        -> 202 + Location: .../calculos/{id}
