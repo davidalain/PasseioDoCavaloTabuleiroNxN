@@ -89,6 +89,40 @@ class TabuleiroTest {
         }
     }
 
+    /**
+     * A partir do 6x6 o índice das casas passa de 31: um deslocamento em {@code int} ({@code 1 << i}) daria errado
+     * e só o {@code long} ({@code 1L << i}) funciona. Os tabuleiros maiores servem só para testar a máscara:
+     * nenhuma busca de passeio é executada aqui.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {6, 7, 8})
+    void mascara_de_bits_funciona_em_todas_as_casas_de_tabuleiros_grandes(int n) {
+        Tabuleiro t = new Tabuleiro(n);
+        assertDoesNotThrow(t::validarDimensaoBitmask);
+
+        long todas = 0L;
+        for (int i = 0; i < t.totalCasas(); i++) {
+            Posicao casa = t.getPosicaoOrdenada(i);
+
+            // Uma casa sozinha liga exatamente o bit do seu índice
+            long sozinha = Tabuleiro.marcarPosicaoVisitada(0L, n, casa);
+            assertEquals(1L << i, sozinha, "Bit da casa " + casa);
+            assertEquals(1, Long.bitCount(sozinha));
+            for (int j = 0; j < t.totalCasas(); j++) {
+                assertEquals(i == j, Tabuleiro.isPosicaoVisitada(sozinha, n, t.getPosicaoOrdenada(j)),
+                        "Casa " + t.getPosicaoOrdenada(j) + " com só " + casa + " marcada");
+            }
+
+            todas = Tabuleiro.marcarPosicaoVisitada(todas, n, casa);
+        }
+
+        // Todas as casas marcadas: N² bits ligados, sem colisão entre casas
+        assertEquals(t.totalCasas(), Long.bitCount(todas));
+        if (n == 8) {
+            assertEquals(-1L, todas, "No 8x8 os 64 bits do long ficam ligados");
+        }
+    }
+
     @Test
     void total_soma_o_mapa_de_solucoes() {
         Tabuleiro t = new Tabuleiro(5);
