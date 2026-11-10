@@ -236,10 +236,10 @@ docker run --rm -p 8080:8080 -e API_TOKEN=meu-token-secreto passeio-cavalo
 **Opção D — com Docker, usando a imagem publicada no GitHub Packages:**
 
 ```bash
-docker run --rm -p 8080:8080 -e API_TOKEN=meu-token-secreto ghcr.io/davidalain/passeiodocavalotabuleironxn:<versão>
+docker run --rm -p 8080:8080 -e API_TOKEN=meu-token-secreto ghcr.io/davidalain/passeiodocavalotabuleironxn:2.0.0
 ```
 
-Troque `<versão>` pela versão desejada (veja as [releases](https://github.com/davidalain/PasseioDoCavaloTabuleiroNxN/releases)).
+Para outra versão, troque o `2.0.0` (veja as [releases](https://github.com/davidalain/PasseioDoCavaloTabuleiroNxN/releases)).
 
 O servidor estará pronto quando aparecer no log `Tomcat started on port 8080`.
 
@@ -407,6 +407,6 @@ com `<id>github</id>` e um token com permissão `read:packages`.
 <dependency>
     <groupId>br.com.davidalain</groupId>
     <artifactId>passeio-cavalo</artifactId>
-    <version>1.0.1</version>
+    <version>2.0.0</version>
 </dependency>
 ```
