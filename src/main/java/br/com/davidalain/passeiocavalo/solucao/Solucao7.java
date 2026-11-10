@@ -4,6 +4,7 @@ import br.com.davidalain.passeiocavalo.model.Posicao;
 import br.com.davidalain.passeiocavalo.model.Tabuleiro;
 
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -19,15 +20,23 @@ import java.util.stream.Stream;
  * <ol>
  *     <li>Cada casa é levada ao seu "espelho original" ({@link Posicao#posicaoEspelhoOriginal(int)}),
  *         que fica no triângulo {@code linha <= coluna} do quadrante superior esquerdo;</li>
- *     <li>A busca roda só para esses representantes, cerca de 1/8 das casas
- *         (6 de 25 no 5x5, 6 de 36 no 6x6);</li>
+ *     <li>A busca roda só para esses representantes (6 de 25 casas no 5x5, 6 de 36 no 6x6,
+ *         10 de 49 no 7x7);</li>
  *     <li>As outras casas copiam o resultado do seu representante.</li>
  * </ol>
- * O tempo total cai para cerca de 1/8 do que seria calcular as N² casas uma a uma.
+ * <b>Execução longa:</b> o {@link ControleExecucao} opcional permite acompanhar o progresso (passeios
+ * encontrados e casas concluídas) e cancelar a busca. A cada passo, a busca consulta
+ * {@link ControleExecucao#cancelado()} e, se for o caso, para lançando {@link CancellationException}.
  */
 public record Solucao7(
-        Tabuleiro tabuleiro
+        Tabuleiro tabuleiro,
+        ControleExecucao controle
 ) {
+
+    /** Solução sem acompanhamento nem cancelamento. */
+    public Solucao7(Tabuleiro tabuleiro) {
+        this(tabuleiro, ControleExecucao.NENHUM);
+    }
 
     /**
      * Conta os passeios que começam em {@code posicaoInicial}. Se o espelho original dela já foi calculado,
@@ -35,6 +44,7 @@ public record Solucao7(
      *
      * @return a quantidade de passeios que começam em {@code posicaoInicial}
      * @throws IllegalArgumentException se o tabuleiro for maior que 8x8
+     * @throws CancellationException    se o {@link ControleExecucao} pedir o cancelamento
      */
     public long encontrarPasseioDoCavalo7(Posicao posicaoInicial) {
         tabuleiro.validarDimensaoBitmask();
@@ -47,10 +57,24 @@ public record Solucao7(
             final long bitMaskVisitados = Tabuleiro.marcarPosicaoVisitada(0L, tabuleiro.dimensao(), espelhoOriginal);
             quantidade = contarPasseios(espelhoOriginal, bitMaskVisitados, 1);
             tabuleiro.mapaPosicaoInicialQuantidadeSolucoes().put(espelhoOriginal, quantidade);
+            controle.casaCalculada(espelhoOriginal, quantidade);
         }
 
         tabuleiro.mapaPosicaoInicialQuantidadeSolucoes().put(posicaoInicial, quantidade);
         return quantidade;
+    }
+
+    /**
+     * Casas que exigem busca: os espelhos originais, sem repetição e em ordem.
+     * O tamanho desta lista é o total usado para medir o progresso.
+     */
+    public List<Posicao> casasRepresentantes() {
+        final int n = tabuleiro.dimensao();
+        return IntStream.range(0, tabuleiro.totalCasas())
+                .mapToObj(i -> tabuleiro.getPosicaoOrdenada(i).posicaoEspelhoOriginal(n))
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     /**
@@ -60,18 +84,18 @@ public record Solucao7(
      *     <li>Preenche as demais casas copiando o valor do seu espelho.</li>
      * </ol>
      * Separar as fases evita que duas threads calculem o mesmo espelho ao mesmo tempo.
+     * <p>
+     * Os streams paralelos usam o ForkJoinPool da thread que chama este método: chamado de dentro de um
+     * {@link java.util.concurrent.ForkJoinPool} próprio, o cálculo não ocupa o pool comum da JVM.
      *
      * @return o total de passeios do tabuleiro (soma de todas as casas iniciais)
+     * @throws CancellationException se o {@link ControleExecucao} pedir o cancelamento
      */
     public long contarTodosOsPasseios() {
         tabuleiro.validarDimensaoBitmask();
-        final int n = tabuleiro.dimensao();
 
-        // Fase 1: só os representantes (sem repetição), em paralelo
-        IntStream.range(0, tabuleiro.totalCasas())
-                .mapToObj(i -> tabuleiro.getPosicaoOrdenada(i).posicaoEspelhoOriginal(n))
-                .distinct()
-                .toList()
+        // Fase 1: só os representantes, em paralelo
+        casasRepresentantes()
                 .parallelStream()
                 .forEach(this::encontrarPasseioDoCavalo7);
 
@@ -84,8 +108,14 @@ public record Solucao7(
     }
 
     private long contarPasseios(Posicao atual, long bitMaskVisitados, int movimentos) {
+        // Ponto de cancelamento: consultado a cada passo, para a busca parar logo depois do pedido
+        if (controle.cancelado()) {
+            throw new CancellationException("Cálculo cancelado");
+        }
+
         // Caso base: visitou todas as casas -> este caminho é um passeio
         if (movimentos == tabuleiro.totalCasas()) {
+            controle.passeioEncontrado();
             return 1;
         }
 

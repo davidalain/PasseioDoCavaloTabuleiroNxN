@@ -1,7 +1,7 @@
 package br.com.davidalain.passeiocavalo.web;
 
 /**
- * Corpo da requisição de cálculo.
+ * Corpo do POST /api/passeiocavalo/calculos.
  *
  * @param dimensao lado do tabuleiro (N), obrigatório
  * @param token    token de acesso. Prefira o header {@code Authorization: Bearer <token>};

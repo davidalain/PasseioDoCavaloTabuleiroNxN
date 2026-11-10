@@ -30,7 +30,8 @@ Fonte: [Number of tours - Knight's tour](https://en.wikipedia.org/wiki/Knight%27
 | 8 | 19 591 828 170 979 904           |
 
 > O número cresce muito rápido: o 5x5 é calculado em fração de segundo, o 6x6 já exige bastante processamento,
-> o 7x7 levaria muito tempo e o 8x8 é inviável por busca exaustiva. Por isso a API aceita, por padrão, no máximo **N = 6**.
+> o 7x7 pode levar dias e o 8x8 é inviável por busca exaustiva. A API aceita, por padrão, no máximo **N = 7**.
+> Por isso o cálculo é **assíncrono**: a requisição só inicia o cálculo, e o andamento e o resultado são consultados depois.
 
 ## **As soluções**
 
@@ -45,7 +46,7 @@ O código de cada uma tem comentários que explicam a lógica em detalhe.
 | [`Solucao4`](src/main/java/br/com/davidalain/passeiocavalo/solucao/Solucao4.java) | Conta todos e guarda numa árvore | Paraleliza só o topo da busca (tarefas maiores, menos custo de coordenação) |
 | [`Solucao5`](src/main/java/br/com/davidalain/passeiocavalo/solucao/Solucao5.java) | Conta todos e guarda numa árvore | Casas visitadas em uma máscara de bits (`long`) no lugar de `boolean[][]` |
 | [`Solucao6`](src/main/java/br/com/davidalain/passeiocavalo/solucao/Solucao6.java) | Só conta | Sem árvore e sem estado compartilhado: cada chamada retorna sua soma (`long`) |
-| [`Solucao7`](src/main/java/br/com/davidalain/passeiocavalo/solucao/Solucao7.java) | Conta todas as casas do tabuleiro | Solução 6 + simetria: calcula só ~1/8 das casas. **É a usada pela API** |
+| [`Solucao7`](src/main/java/br/com/davidalain/passeiocavalo/solucao/Solucao7.java) | Conta todas as casas do tabuleiro | Solução 6 + simetria: busca só as casas "espelho original" (6 de 25 no 5x5, 10 de 49 no 7x7). Pode ser acompanhada e cancelada. **É a usada pela API** |
 
 As soluções 5, 6 e 7 suportam tabuleiros de até 8x8 (64 casas = 64 bits de um `long`).
 
@@ -86,7 +87,7 @@ No Windows, use `mvnw.cmd` no lugar de `./mvnw`.
 ### 4. Definir o token de acesso
 
 A API só aceita requisições com um token. Ele é lido da variável de ambiente `API_TOKEN`
-(sem ela, o servidor sobe, mas responde `503` no cálculo):
+(sem ela, o servidor sobe, mas responde `503` nos endpoints de cálculo):
 
 ```bash
 export API_TOKEN=meu-token-secreto
@@ -109,7 +110,7 @@ No Windows (PowerShell): `$env:API_TOKEN="meu-token-secreto"`.
 ```
 
 ```bash
-java -jar target/passeio-cavalo-1.0.1-exec.jar
+java -jar target/passeio-cavalo-*-exec.jar
 ```
 
 **Opção C — com Docker, compilando a imagem localmente:**
@@ -125,8 +126,10 @@ docker run --rm -p 8080:8080 -e API_TOKEN=meu-token-secreto passeio-cavalo
 **Opção D — com Docker, usando a imagem publicada no GitHub Packages:**
 
 ```bash
-docker run --rm -p 8080:8080 -e API_TOKEN=meu-token-secreto ghcr.io/davidalain/passeiodocavalotabuleironxn:1.0.1
+docker run --rm -p 8080:8080 -e API_TOKEN=meu-token-secreto ghcr.io/davidalain/passeiodocavalotabuleironxn:<versão>
 ```
+
+Troque `<versão>` pela versão desejada (veja as [releases](https://github.com/davidalain/PasseioDoCavaloTabuleiroNxN/releases)).
 
 O servidor estará pronto quando aparecer no log `Tomcat started on port 8080`.
 
@@ -138,73 +141,76 @@ Verifique se o servidor está no ar:
 curl http://localhost:8080/api/passeiocavalo/health
 ```
 
-Calcule os passeios de um tabuleiro 5x5:
+**Inicie** o cálculo de um tabuleiro 5x5. A resposta chega na hora, com o `id` do cálculo:
 
 ```bash
-curl -X POST http://localhost:8080/api/passeiocavalo/calcular -H "Authorization: Bearer meu-token-secreto" -H "Content-Type: application/json" -d '{"dimensao": 5}'
+curl -i -X POST http://localhost:8080/api/passeiocavalo/calculos -H "Authorization: Bearer meu-token-secreto" -H "Content-Type: application/json" -d '{"dimensao": 5}'
 ```
-
-Resposta esperada (o tempo varia de máquina para máquina):
 
 ```json
 {
-  "status": "Sucesso",
-  "totalSolucoes": 1728,
+  "id": "3f2b8c1e-5d4a-4f6b-9a7e-2c1d0e9f8a7b",
+  "status": "EM_ANDAMENTO",
   "dimensaoTabuleiro": "5x5",
-  "tempoExecucaoMs": 159
+  "casasCalculadas": 0,
+  "casasTotal": 6,
+  "progressoPercentual": 0.0,
+  "passeiosEncontrados": 0,
+  "tempoExecucaoMs": 0,
+  "iniciadoEm": "2026-11-10T13:00:00.000Z"
 }
+```
+
+**Consulte** o andamento com o `id` recebido (o header `Location` da resposta já traz o endereço completo).
+Repita até o `status` sair de `EM_ANDAMENTO`:
+
+```bash
+curl http://localhost:8080/api/passeiocavalo/calculos/3f2b8c1e-5d4a-4f6b-9a7e-2c1d0e9f8a7b -H "Authorization: Bearer meu-token-secreto"
+```
+
+```json
+{
+  "id": "3f2b8c1e-5d4a-4f6b-9a7e-2c1d0e9f8a7b",
+  "status": "CONCLUIDO",
+  "dimensaoTabuleiro": "5x5",
+  "casasCalculadas": 6,
+  "casasTotal": 6,
+  "progressoPercentual": 100.0,
+  "passeiosEncontrados": 480,
+  "totalSolucoes": 1728,
+  "tempoExecucaoMs": 159,
+  "iniciadoEm": "2026-11-10T13:00:00.000Z",
+  "finalizadoEm": "2026-11-10T13:00:00.159Z"
+}
+```
+
+Para **cancelar** um cálculo que ainda está rodando:
+
+```bash
+curl -X DELETE http://localhost:8080/api/passeiocavalo/calculos/3f2b8c1e-5d4a-4f6b-9a7e-2c1d0e9f8a7b -H "Authorization: Bearer meu-token-secreto"
 ```
 
 ### 7. Configurações
 
 | Variável de ambiente | Padrão | Descrição |
 | -------------------- | ------ | --------- |
-| `API_TOKEN` | _(vazio)_ | Token exigido pelo endpoint `/calcular`. **Obrigatório** |
-| `PASSEIO_DIMENSAO_MAXIMA` | `6` | Maior N aceito pela API (de 1 a 8) |
+| `API_TOKEN` | _(vazio)_ | Token exigido pelos endpoints de cálculo. **Obrigatório** |
+| `PASSEIO_DIMENSAO_MAXIMA` | `7` | Maior N aceito (de 1 a 8) |
+| `PASSEIO_TEMPO_MAXIMO` | `0s` (sem limite) | Duração máxima de um cálculo, ex.: `30m`, `12h`, `3d`. Ao passar dele, o cálculo para com status `TEMPO_ESGOTADO` |
+| `PASSEIO_PARALELISMO` | `0` (todos os núcleos) | Quantas threads o cálculo usa |
+| `PASSEIO_HISTORICO_MAXIMO` | `100` | Quantos cálculos terminados ficam guardados para consulta |
 | `PORT` | `8080` | Porta HTTP do servidor |
+
+> Os cálculos ficam na memória: reiniciar o servidor cancela o cálculo em andamento e apaga o histórico.
 
 ---
 
 ## **Referência da API**
 
 * **BASE_URL:** `http://{HOST}:8080/api/passeiocavalo`
-
-### `GET {BASE_URL}/health`
-
-Indica se o servidor está respondendo.
-
-```json
-{
-  "status": "UP"
-}
-```
-
-### `POST {BASE_URL}/calcular`
-
-Calcula, de forma síncrona, o total de passeios do tabuleiro NxN.
-
-* **Autenticação:** header `Authorization: Bearer <token>`.
-  Por compatibilidade com a versão 1.0.0, o token também é aceito no campo `token` do corpo.
-* **Corpo da requisição (JSON):**
-
-```json
-{
-  "dimensao": 5
-}
-```
-
-* **Resposta de sucesso (`200`):**
-
-```json
-{
-  "status": "Sucesso",
-  "totalSolucoes": 1728,
-  "dimensaoTabuleiro": "5x5",
-  "tempoExecucaoMs": 159
-}
-```
-
-* **Respostas de erro:**
+* **Autenticação** (todos os endpoints, menos o `/health`): header `Authorization: Bearer <token>`.
+  No `POST /calculos`, por compatibilidade com a versão 1.0.0, o token também é aceito no campo `token` do corpo.
+* **Erros** sempre têm o formato:
 
 ```json
 {
@@ -212,12 +218,60 @@ Calcula, de forma síncrona, o total de passeios do tabuleiro NxN.
 }
 ```
 
+### `GET {BASE_URL}/health`
+
+Indica se o servidor está respondendo. Não exige token.
+
+```json
+{
+  "status": "UP"
+}
+```
+
+### `POST {BASE_URL}/calculos`
+
+Inicia o cálculo em segundo plano e responde na hora. A API faz **um cálculo por vez**.
+
+* **Corpo:** `{"dimensao": 5}`
+* **`202 Accepted`:** header `Location` com o endereço do cálculo e corpo com o estado inicial (formato abaixo).
+
 | Status | Quando |
 | ------ | ------ |
 | `400` | `dimensao` ausente, menor que 1 ou acima do limite, ou JSON inválido |
 | `401` | Token ausente ou inválido |
-| `429` | Já existe um cálculo em andamento (a API faz um por vez) |
+| `429` | Já existe um cálculo em andamento. O campo `calculoEmAndamento` traz o `id` dele |
 | `503` | O servidor foi iniciado sem a variável `API_TOKEN` |
+
+### `GET {BASE_URL}/calculos/{id}`
+
+Situação do cálculo. Responde `200`, ou `404` se o `id` não existe (ou já saiu do histórico).
+
+| Campo | Descrição |
+| ----- | --------- |
+| `status` | `EM_ANDAMENTO`, `CONCLUIDO`, `CANCELADO`, `TEMPO_ESGOTADO` ou `FALHOU` |
+| `casasCalculadas` / `casasTotal` | Casas iniciais já buscadas / casas que exigem busca (só os espelhos originais) |
+| `progressoPercentual` | `casasCalculadas` / `casasTotal`, de 0 a 100 |
+| `passeiosEncontrados` | Passeios achados até agora nas casas buscadas. Mede o andamento; o total final é maior, porque inclui as casas simétricas |
+| `totalSolucoes` | Total de passeios do tabuleiro. Só aparece com status `CONCLUIDO` |
+| `tempoExecucaoMs` | Tempo desde o início, ou a duração total se já terminou |
+| `iniciadoEm` / `finalizadoEm` | Datas no formato ISO-8601 (UTC). `finalizadoEm` só aparece no fim |
+| `erro` | Motivo, quando o status é `CANCELADO`, `TEMPO_ESGOTADO` ou `FALHOU` |
+
+### `DELETE {BASE_URL}/calculos/{id}`
+
+Pede o cancelamento. Responde `202` com o estado atual; a busca para logo depois, e o status passa a `CANCELADO`.
+Responde `404` se o `id` não existe e `409` se o cálculo já terminou.
+
+### Por que assíncrono?
+
+Um cálculo grande pode levar horas ou dias. Se a resposta só viesse no fim, a conexão HTTP ficaria aberta e
+parada esse tempo todo, e seria cortada no caminho: proxies como o nginx e balanceadores como o AWS ALB fecham
+conexões sem resposta em 60 s, e o Cloudflare em 100 s. Pior: o servidor não percebe que o cliente foi embora e
+continua calculando, sem ninguém para receber o resultado. Por isso o antigo `POST /calcular` (síncrono, da
+versão 1.0.x) foi removido: cada requisição agora dura milissegundos, e o resultado fica guardado até ser consultado.
+
+O cálculo roda em um pool de threads próprio (não ocupa o pool comum da JVM nem as threads do servidor HTTP),
+e a busca consulta o pedido de cancelamento a cada passo, então o `DELETE` e o tempo máximo param o cálculo na hora.
 
 ---
 
