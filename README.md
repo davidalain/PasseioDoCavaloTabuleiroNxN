@@ -52,6 +52,106 @@ As soluções 5, 6 e 7 suportam tabuleiros de até 8x8 (64 casas = 64 bits de um
 
 ---
 
+## **Poda por posições espelho (simetria)**
+
+A `Solucao7` não faz a busca a partir de todas as casas do tabuleiro. Ela usa a simetria do quadrado para
+**podar casas iniciais inteiras**: só busca uma casa de cada grupo de casas simétricas e copia o resultado para as outras.
+
+### A ideia
+
+Um tabuleiro quadrado continua igual depois de **8 transformações**: 4 rotações (0°, 90°, 180° e 270°) e
+4 reflexões (no eixo horizontal, no vertical e nas duas diagonais). Uma transformação dessas leva um passeio
+do cavalo em outro passeio, porque o salto em "L" continua sendo um salto em "L" depois de girado ou refletido.
+
+Por isso, **casas simétricas têm exatamente a mesma quantidade de passeios**. Se partindo do canto (0,0)
+existem 304 passeios, partindo dos outros três cantos também existem 304: cada passeio de um canto, girado,
+vira um passeio do outro.
+
+Nas imagens abaixo, casas com a **mesma letra** formam um grupo de casas simétricas, e todas têm a mesma
+quantidade de passeios:
+
+<table>
+  <tr>
+    <th>5x5: grupos de casas simétricas</th>
+    <th>6x6: grupos de casas simétricas</th>
+  </tr>
+  <tr>
+    <td><img src="img/5x5_default.jpeg" alt="Tabuleiro 5x5 com as casas simétricas marcadas pela mesma letra, de a até f" width="320"></td>
+    <td><img src="img/6x6_default.jpeg" alt="Tabuleiro 6x6 com as casas simétricas marcadas pela mesma letra, de a até f" width="320"></td>
+  </tr>
+</table>
+
+### Quais casas são buscadas
+
+De cada grupo basta buscar **uma** casa: o "espelho original" (método
+[`Posicao.posicaoEspelhoOriginal`](src/main/java/br/com/davidalain/passeiocavalo/model/Posicao.java)).
+Para encontrá-lo, a casa é refletida até cair no triângulo do quadrante superior esquerdo:
+
+1. **Reflexão horizontal:** se a linha está na metade de baixo (`linha >= ⌈N/2⌉`), vira `N - linha - 1`;
+2. **Reflexão vertical:** se a coluna está na metade da direita (`coluna >= ⌈N/2⌉`), vira `N - coluna - 1`;
+3. **Reflexão na diagonal principal:** se `linha > coluna`, troca linha e coluna.
+
+O resultado sempre fica no triângulo com `linha <= coluna`, dentro do quadrante superior esquerdo. Essas são
+as casas em **preto** nas imagens, as únicas em que a busca roda:
+
+<table>
+  <tr>
+    <th>5x5: 6 casas buscadas de 25</th>
+    <th>6x6: 6 casas buscadas de 36</th>
+  </tr>
+  <tr>
+    <td><img src="img/5x5_highlighted.jpeg" alt="Tabuleiro 5x5 com as 6 casas buscadas em preto: (0,0), (0,1), (0,2), (1,1), (1,2) e (2,2)" width="320"></td>
+    <td><img src="img/6x6_highlighted.jpeg" alt="Tabuleiro 6x6 com as 6 casas buscadas em preto: (0,0), (0,1), (0,2), (1,1), (1,2) e (2,2)" width="320"></td>
+  </tr>
+</table>
+
+Exemplos no 5x5 (⌈5/2⌉ = 3):
+
+| Casa | Passo 1 (linha) | Passo 2 (coluna) | Passo 3 (diagonal) | Espelho original |
+| ---- | --------------- | ---------------- | ------------------ | ---------------- |
+| (4,4) | 4 → 0: (0,4) | 4 → 0: (0,0) | — | (0,0) = **a** |
+| (3,0) | 3 → 1: (1,0) | — | troca: (0,1) | (0,1) = **b** |
+| (2,4) | — | 4 → 0: (2,0) | troca: (0,2) | (0,2) = **c** |
+| (2,3) | — | 3 → 1: (2,1) | troca: (1,2) | (1,2) = **e** |
+
+### O cálculo em duas fases
+
+A [`Solucao7`](src/main/java/br/com/davidalain/passeiocavalo/solucao/Solucao7.java) faz o cálculo em duas fases:
+
+1. **Busca, em paralelo, só nas casas representantes** (as casas em preto);
+2. **Preenche as demais casas** copiando o valor do seu espelho original, sem nenhuma busca nova.
+
+No 5x5, por exemplo, a busca roda em apenas 6 casas. O total sai da soma de cada grupo, multiplicando
+os passeios do representante pelo tamanho do grupo:
+
+| Grupo | Representante | Casas no grupo | Passeios por casa | Subtotal |
+| :---: | :-----------: | :------------: | ----------------: | -------: |
+| a | (0,0) | 4 | 304 | 1 216 |
+| b | (0,1) | 8 | 0 | 0 |
+| c | (0,2) | 4 | 56 | 224 |
+| d | (1,1) | 4 | 56 | 224 |
+| e | (1,2) | 4 | 0 | 0 |
+| f | (2,2) | 1 | 64 | 64 |
+| | | **25** | | **1 728** |
+
+### Quanto a poda economiza
+
+Com k = ⌈N/2⌉, a busca roda em k·(k+1)/2 casas, em vez de N²:
+
+| N | Casas do tabuleiro | Casas buscadas | Busca roda em |
+| - | -----------------: | -------------: | ------------: |
+| 4 | 16 | 3 | 19% das casas |
+| 5 | 25 | 6 | 24% das casas |
+| 6 | 36 | 6 | 17% das casas |
+| 7 | 49 | 10 | 20% das casas |
+| 8 | 64 | 10 | 16% das casas |
+
+A economia é um pouco menor que 1/8 porque nem todo grupo tem 8 casas. As casas que ficam sobre as diagonais
+ou sobre as linhas centrais coincidem com o próprio reflexo, e o grupo fica com 4 casas (ou só 1, no centro
+dos tabuleiros de lado ímpar). Os cantos, por exemplo, formam grupos de 4.
+
+---
+
 ## **Tutorial: como executar o projeto**
 
 ### 1. Pré-requisitos
